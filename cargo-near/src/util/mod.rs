@@ -103,7 +103,11 @@ where
     let mut cmd = Command::new(get_powershell_path().unwrap());
     #[cfg(target_os = "windows")]
     cmd.arg(cargo);
-
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.envs(env);
 
     if let Some(path) = working_dir {
