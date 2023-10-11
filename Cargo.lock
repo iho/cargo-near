@@ -664,6 +664,7 @@ dependencies = [
  "log",
  "near-abi",
  "near-cli-rs",
+ "powershell_script",
  "rustc_version",
  "schemars",
  "serde_json",
@@ -3396,6 +3397,12 @@ checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
 dependencies = [
  "rand 0.8.5",
 ]
+
+[[package]]
+name = "powershell_script"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef8336090917f3d3a044256bc0e5c51d5420e5d09dfa1df4868083c5231a454"
 
 [[package]]
 name = "ppv-lite86"

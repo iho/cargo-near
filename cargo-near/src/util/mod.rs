@@ -8,6 +8,8 @@ use std::{env, thread};
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::{Artifact, Message};
 use color_eyre::eyre::{ContextCompat, WrapErr};
+#[cfg(target_os = "windows")]
+use powershell_script::PsScriptBuilder;
 
 use crate::common::ColorPreference;
 use crate::types::manifest::CargoManifestPath;
@@ -34,6 +36,7 @@ pub(crate) const fn dylib_extension() -> &'static str {
 /// If `working_dir` is set, cargo process will be spawned in the specified directory.
 ///
 /// Returns execution standard output as a byte array.
+#[cfg(not(target_os = "windows"))]
 fn invoke_cargo<A, P, E, S, EK, EV>(
     command: &str,
     args: A,
@@ -126,6 +129,59 @@ where
     } else {
         color_eyre::eyre::bail!("`{:?}` failed with exit code: {:?}", cmd, output.code());
     }
+}
+
+#[cfg(target_os = "windows")]
+fn invoke_cargo<A, P, E, S, EK, EV>(
+    command: &str,
+    args: A,
+    working_dir: Option<P>,
+    env: E,
+    color: ColorPreference,
+) -> color_eyre::eyre::Result<Vec<Artifact>>
+where
+    A: IntoIterator<Item = S>,
+    P: AsRef<Utf8Path>,
+    E: IntoIterator<Item = (EK, EV)>,
+    S: AsRef<OsStr>,
+    EK: AsRef<OsStr>,
+    EV: AsRef<OsStr>,
+{
+    use std::fmt::format;
+    let ps = PsScriptBuilder::new()
+        .no_profile(true)
+        .non_interactive(true)
+        .hidden(false)
+        .print_commands(false)
+        .build();
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+
+    let mut res: Vec<String> = vec![];
+    for arg in args {
+        res.push(format!("{:?}", arg.as_ref()));
+    }
+    let args = res.join(", ");
+    let res = ps.run(&format!("{} {}", cargo, args))?;
+    let mut artifacts = vec![];
+    if let Some(output) = res.stdout() {
+        println!("{}", output);
+        for message in Message::parse_stream(output.as_bytes()) {
+            match message? {
+                Message::CompilerArtifact(artifact) => {
+                    artifacts.push(artifact);
+                }
+                Message::CompilerMessage(message) => {
+                    if let Some(msg) = message.message.rendered {
+                        for line in msg.lines() {
+                            eprintln!(" │ {}", line);
+                        }
+                    }
+                }
+                _ => {}
+            };
+        }
+    }
+    Ok(artifacts)
 }
 
 pub(crate) fn invoke_rustup<I, S>(args: I) -> color_eyre::eyre::Result<Vec<u8>>
