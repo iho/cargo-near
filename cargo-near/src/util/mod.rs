@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::Command;
 use std::{env, thread};
 
@@ -31,6 +32,49 @@ pub(crate) const fn dylib_extension() -> &'static str {
     compile_error!("Unsupported platform");
 }
 
+#[cfg(target_os = "windows")]
+const PATH_SPLITTER: char = ';';
+#[cfg(target_os = "windows")]
+const POWERSHELL_NAME: &str = "PowerShell.exe";
+#[cfg(target_os = "windows")]
+fn is_program_on_path(program_name: &str) -> Option<bool> {
+    let system_path = match env::var("PATH") {
+        Ok(x) => x,
+        Err(_e) => return None,
+    };
+
+    for path_dir in system_path.split(PATH_SPLITTER) {
+        let path = std::path::Path::new(path_dir).join(&program_name);
+
+        if path.exists() {
+            return Some(true);
+        }
+    }
+
+    return Some(false);
+}
+#[cfg(target_os = "windows")]
+fn get_powershell_path() -> Option<String> {
+    // Preferred option: use the powershell installation that is on path
+    if is_program_on_path(POWERSHELL_NAME).unwrap() {
+        return Some(POWERSHELL_NAME.to_string());
+    }
+
+    // Backup option for windows, because cmd apparently ignores powershell on path: Try powershell's default installation path
+    let system_root = match env::var("SYSTEMROOT") {
+        Ok(x) => x,
+        Err(_e) => return None,
+    };
+
+    let path_candidate =
+        Path::new(&system_root).join(r#"System32\WindowsPowerShell\v1.0\powershell.exe"#);
+
+    if path_candidate.exists() {
+        Some(path_candidate.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
 /// Invokes `cargo` with the subcommand `command`, the supplied `args` and set `env` variables.
 ///
 /// If `working_dir` is set, cargo process will be spawned in the specified directory.
@@ -54,6 +98,11 @@ where
 {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let mut cmd = Command::new(cargo);
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = Command::new(get_powershell_path().unwrap());
+    #[cfg(target_os = "windows")]
+    cmd.arg(cargo);
 
     cmd.envs(env);
 
@@ -129,58 +178,6 @@ where
     } else {
         color_eyre::eyre::bail!("`{:?}` failed with exit code: {:?}", cmd, output.code());
     }
-}
-
-#[cfg(target_os = "windows")]
-fn invoke_cargo<A, P, E, S, EK, EV>(
-    command: &str,
-    args: A,
-    working_dir: Option<P>,
-    env: E,
-    color: ColorPreference,
-) -> color_eyre::eyre::Result<Vec<Artifact>>
-where
-    A: IntoIterator<Item = S>,
-    P: AsRef<Utf8Path>,
-    E: IntoIterator<Item = (EK, EV)>,
-    S: AsRef<OsStr>,
-    EK: AsRef<OsStr>,
-    EV: AsRef<OsStr>,
-{
-    use std::fmt::format;
-    let ps = PsScriptBuilder::new()
-        .no_profile(true)
-        .non_interactive(true)
-        .hidden(false)
-        .print_commands(false)
-        .build();
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-
-    let mut res: Vec<String> = vec![];
-    for arg in args {
-        res.push(format!("{:?}", arg.as_ref()));
-    }
-    let args = res.join(", ");
-    let res = ps.run(&format!("{} {} {}", cargo, command, args))?;
-    let mut artifacts = vec![];
-    if let Some(output) = res.stdout() {
-        for message in Message::parse_stream(output.as_bytes()) {
-            match message? {
-                Message::CompilerArtifact(artifact) => {
-                    artifacts.push(artifact);
-                }
-                Message::CompilerMessage(message) => {
-                    if let Some(msg) = message.message.rendered {
-                        for line in msg.lines() {
-                            eprintln!(" │ {}", line);
-                        }
-                    }
-                }
-                _ => {}
-            };
-        }
-    }
-    Ok(artifacts)
 }
 
 pub(crate) fn invoke_rustup<I, S>(args: I) -> color_eyre::eyre::Result<Vec<u8>>
