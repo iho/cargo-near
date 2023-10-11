@@ -161,10 +161,9 @@ where
         res.push(format!("{:?}", arg.as_ref()));
     }
     let args = res.join(", ");
-    let res = ps.run(&format!("{} {}", cargo, args))?;
+    let res = ps.run(&format!("{} {} {}", cargo, command, args))?;
     let mut artifacts = vec![];
     if let Some(output) = res.stdout() {
-        println!("{}", output);
         for message in Message::parse_stream(output.as_bytes()) {
             match message? {
                 Message::CompilerArtifact(artifact) => {
