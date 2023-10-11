@@ -9,7 +9,12 @@ readme = "README.md"
 repository = "https://github.com/near/cargo-near"
 license = "MIT OR Apache-2.0"
 keywords = ["cargo", "near", "contract", "abi", "build"]
-categories = ["development-tools", "development-tools::cargo-plugins", "development-tools::build-utils", "command-line-utilities"]
+categories = [
+    "development-tools",
+    "development-tools::cargo-plugins",
+    "development-tools::build-utils",
+    "command-line-utilities",
+]
 
 [package.metadata.wix]
 upgrade-guid = "FFBAE83D-C3FA-45DD-9F19-C8F312E905C5"
@@ -42,3 +47,6 @@ interactive-clap-derive = "0.2.5"
 near-cli-rs = { version = "0.5.2" }
 derive_more = "0.99.9"
 shell-words = "1.0.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+powershell_script = "1.1.0"

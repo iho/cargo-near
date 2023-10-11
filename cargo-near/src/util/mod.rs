@@ -2,12 +2,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::Command;
 use std::{env, thread};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::{Artifact, Message};
 use color_eyre::eyre::{ContextCompat, WrapErr};
+#[cfg(target_os = "windows")]
+use powershell_script::PsScriptBuilder;
 
 use crate::common::ColorPreference;
 use crate::types::manifest::CargoManifestPath;
@@ -29,11 +32,55 @@ pub(crate) const fn dylib_extension() -> &'static str {
     compile_error!("Unsupported platform");
 }
 
+#[cfg(target_os = "windows")]
+const PATH_SPLITTER: char = ';';
+#[cfg(target_os = "windows")]
+const POWERSHELL_NAME: &str = "PowerShell.exe";
+#[cfg(target_os = "windows")]
+fn is_program_on_path(program_name: &str) -> Option<bool> {
+    let system_path = match env::var("PATH") {
+        Ok(x) => x,
+        Err(_e) => return None,
+    };
+
+    for path_dir in system_path.split(PATH_SPLITTER) {
+        let path = std::path::Path::new(path_dir).join(&program_name);
+
+        if path.exists() {
+            return Some(true);
+        }
+    }
+
+    return Some(false);
+}
+#[cfg(target_os = "windows")]
+fn get_powershell_path() -> Option<String> {
+    // Preferred option: use the powershell installation that is on path
+    if is_program_on_path(POWERSHELL_NAME).unwrap() {
+        return Some(POWERSHELL_NAME.to_string());
+    }
+
+    // Backup option for windows, because cmd apparently ignores powershell on path: Try powershell's default installation path
+    let system_root = match env::var("SYSTEMROOT") {
+        Ok(x) => x,
+        Err(_e) => return None,
+    };
+
+    let path_candidate =
+        Path::new(&system_root).join(r#"System32\WindowsPowerShell\v1.0\powershell.exe"#);
+
+    if path_candidate.exists() {
+        Some(path_candidate.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
 /// Invokes `cargo` with the subcommand `command`, the supplied `args` and set `env` variables.
 ///
 /// If `working_dir` is set, cargo process will be spawned in the specified directory.
 ///
 /// Returns execution standard output as a byte array.
+#[cfg(not(target_os = "windows"))]
 fn invoke_cargo<A, P, E, S, EK, EV>(
     command: &str,
     args: A,
@@ -52,6 +99,15 @@ where
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let mut cmd = Command::new(cargo);
 
+    #[cfg(target_os = "windows")]
+    let mut cmd = Command::new(get_powershell_path().unwrap());
+    #[cfg(target_os = "windows")]
+    cmd.arg(cargo);
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.envs(env);
 
     if let Some(path) = working_dir {
